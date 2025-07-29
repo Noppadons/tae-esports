@@ -1,56 +1,60 @@
-# STEP 1: Use an official PHP image with Apache as the base
+# STEP 1: ใช้ PHP Image ที่มี Apache เป็น Base Image
+# เราใช้ PHP 8.2 พร้อม Apache เพื่อให้เหมาะกับโปรเจกต์ของคุณ
 FROM php:8.2-apache
 
-# STEP 2: Set the working directory inside the container
-# This is the default document root for Apache (where your web files will go)
+# STEP 2: ตั้งค่า Working Directory ภายใน Container
+# นี่คือ Root Folder ที่ไฟล์เว็บไซต์ของคุณจะถูกวางไว้ และ Apache จะใช้เป็น Document Root
 WORKDIR /var/www/html
 
-# STEP 3: Copy your entire application code into the container
-# The '.' means copy everything from the current directory on your local machine
-# to the WORKDIR '/var/www/html' inside the container.
+# STEP 3: คัดลอกโค้ด Application ทั้งหมดของคุณไปยัง Container
+# COPY . /var/www/html หมายถึง คัดลอกทุกไฟล์/โฟลเดอร์จาก Current Directory (Root ของโปรเจกต์คุณ)
+# ไปยัง /var/www/html ภายใน Container
 COPY . /var/www/html
 
-# STEP 4: Install necessary system dependencies for PHP extensions (like PostgreSQL client libraries)
-# 'libpq-dev' is required for pdo_pgsql and pgsql extensions.
-# 'zip' and 'unzip' are common tools often used by PHP applications/dependency managers.
-# 'rm -rf /var/lib/apt/lists/*' cleans up apt cache to keep the image size small.
+# STEP 4: ติดตั้ง System Dependencies ที่จำเป็นสำหรับ PHP Extensions และ Tools
+# 'apt-get update' เพื่ออัปเดตรายการแพ็กเกจ
+# 'libpq-dev' จำเป็นสำหรับ pdo_pgsql และ pgsql extensions (สำหรับ PostgreSQL)
+# 'zip' และ 'unzip' เป็นเครื่องมือที่พบบ่อยสำหรับ PHP applications/dependency managers (เช่น Composer)
+# 'rm -rf /var/lib/apt/lists/*' เพื่อล้าง Cache ของ apt และลดขนาด Docker Image
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     zip \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# STEP 5: Install PHP extensions required by your application
-# 'pdo' is the PHP Data Objects extension core.
-# 'pdo_pgsql' is the PDO driver for PostgreSQL.
-# 'pgsql' is the native PostgreSQL extension for PHP.
-# The 'docker-php-ext-install' command compiles and enables the extensions.
+# STEP 5: ติดตั้ง PHP Extensions ที่โปรเจกต์ของคุณต้องการ
+# 'docker-php-ext-install' เป็นคำสั่งมาตรฐานสำหรับติดตั้ง PHP Extensions
+# 'pdo': PHP Data Objects Core (จำเป็นสำหรับ PDO ทุก Database)
+# 'pdo_pgsql': PDO Driver สำหรับ PostgreSQL (สำหรับเชื่อมต่อ DB ของคุณ)
+# 'pgsql': Native PostgreSQL Extension (บางที pdo_pgsql ก็พอ แต่ติดตั้งไปก็ไม่เสียหาย)
+# ส่วนใหญ่ Docker จะ Enable ให้เองหลังจาก Install แต่ถ้าเจอ 'could not find driver' อีกครั้ง 
+# อาจจะต้องเพิ่ม RUN docker-php-ext-enable pdo_pgsql pgsql
 RUN docker-php-ext-install pdo pdo_pgsql pgsql
 
-# STEP 6: Configure Apache to allow .htaccess overrides and enable rewrite module
-# 'sed -i' command modifies the apache2.conf file in-place:
-# It changes 'AllowOverride None' to 'AllowOverride All' for the /var/www/html directory,
-# which allows your .htaccess file (if you use one for clean URLs) to work.
-# 'a2enmod rewrite' enables Apache's mod_rewrite module, also necessary for .htaccess.
+# STEP 6: กำหนดค่า Apache เพื่อให้รองรับ .htaccess และเปิดใช้งาน Modules ที่จำเป็น
+# 'sed -i' คำสั่งสำหรับแก้ไขไฟล์ apache2.conf โดยตรง:
+# - 's/AllowOverride None/AllowOverride All/g': อนุญาตให้ .htaccess สามารถ Override การตั้งค่า Apache ได้
+# - 'a2enmod rewrite': เปิดใช้งาน mod_rewrite (จำเป็นสำหรับ URL Rewrite)
+# - 'a2enmod headers': เปิดใช้งาน mod_headers (จำเป็นสำหรับ Header always set ใน .htaccess)
+# - 'a2enmod expires': เปิดใช้งาน mod_expires (จำเป็นสำหรับ Caching ใน .htaccess)
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf \
-    && a2enmod rewrite
+    && a2enmod rewrite \
+    && a2enmod headers \
+    && a2enmod expires
 
-# STEP 7: Set correct file permissions for directories where files might be uploaded
-# This is crucial for PHP's move_uploaded_file() function to work.
-# 'www-data' is the default user Apache runs as in this Docker image.
-# 'chown -R www-data:www-data assets/img': Changes ownership of assets/img and its contents.
-# 'find assets/img -type d -exec chmod 775 {} \;': Sets read/write/execute for owner/group on directories.
-# 'find assets/img -type f -exec chmod 664 {} \;': Sets read/write for owner/group on files.
-# This ensures Apache has permission to create/delete files in these directories.
+# STEP 7: ตั้งค่า Permission ของไฟล์/โฟลเดอร์สำหรับ Upload
+# นี่เป็นส่วนสำคัญที่ทำให้ PHP สามารถเขียนไฟล์ (เช่น รูปภาพที่อัปโหลด) ลงใน Server ได้
+# 'www-data' คือ User/Group ที่ Apache รันอยู่ภายใน Container
+# 'chown -R www-data:www-data assets/img': เปลี่ยนเจ้าของ assets/img และทุกอย่างข้างใน
+# 'find assets/img -type d -exec chmod 775 {} \;': ตั้งค่า Permissions สำหรับ Directories ให้ www-data มีสิทธิ์เขียนและอื่นๆ อ่าน/Execute
+# 'find assets/img -type f -exec chmod 664 {} \;': ตั้งค่า Permissions สำหรับ Files ให้ www-data มีสิทธิ์เขียนและอื่นๆ อ่าน
 RUN chown -R www-data:www-data assets/img \
     && find assets/img -type d -exec chmod 775 {} \; \
     && find assets/img -type f -exec chmod 664 {} \;
 
-# STEP 8: Expose the port that Apache is listening on inside the container
-# Apache typically listens on port 80 for HTTP traffic.
+# STEP 8: กำหนด Port ที่ Container จะเปิดเพื่อรับ Traffic ภายนอก
+# Apache โดยปกติจะรับ HTTP Traffic ที่ Port 80
 EXPOSE 80
 
-# STEP 9: Define the default command to run when the container starts
-# For php:apache images, Apache is usually the entry point.
-# This command is typically implicitly handled by the base image, so it's often omitted.
+# STEP 9: กำหนด Command ที่จะรันเมื่อ Container เริ่มต้น (ไม่บังคับ เพราะ Base Image มี Default)
 # CMD ["apache2-foreground"]

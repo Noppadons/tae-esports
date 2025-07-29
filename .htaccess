@@ -1,49 +1,52 @@
-# เปิดใช้งาน RewriteEngine (สำคัญสำหรับการทำ URL ให้สวยงาม)
+# -------------------------------------------------------------
+# .htaccess for PHP Applications on Render (Apache)
+# -------------------------------------------------------------
+
+# เปิดใช้งาน RewriteEngine (จำเป็นสำหรับ URL Rewriting)
 RewriteEngine On
 
 # -------------------------------------------------------------
 # 1. การเปลี่ยนเส้นทางไป HTTPS (สำคัญมากสำหรับ Render และความปลอดภัย)
-# ตรวจสอบว่าไม่ได้อยู่ใน HTTPS และ Hostname ไม่ตรงกับของ Render
+# บังคับใช้ HTTPS และ Redirect ไปยัง Domain ที่ถูกต้อง
+# ตรวจสอบว่าไม่ได้อยู่ใน HTTPS และ Hostname ไม่ตรงกับ Domain ที่ตั้งค่าไว้
 RewriteCond %{HTTPS} off [OR]
-# เปลี่ยน tae-s.onrender.com เป็น Domain จริงของโปรเจกต์คุณบน Render (เช่น your-project-name.onrender.com)
 RewriteCond %{HTTP_HOST} !^tae-s\.onrender\.com$ [NC]
+# เปลี่ยน 'tae-s.onrender.com' เป็น Domain จริงของโปรเจกต์คุณบน Render
 RewriteRule ^ https://tae-s.onrender.com%{REQUEST_URI} [L,R=301]
-# หากคุณใช้ Custom Domain (เช่น www.yourdomain.com) ให้เปลี่ยนบรรทัดบนเป็น:
-# RewriteCond %{HTTP_HOST} !^www\.yourdomain\.com$ [NC]
-# RewriteRule ^ https://www.yourdomain.com%{REQUEST_URI} [L,R=301]
-
 
 # -------------------------------------------------------------
 # 2. ป้องกันการแสดงรายการ Directory (Directory Listing) - เพื่อความปลอดภัย
 # ถ้ามีใครเข้า URL ที่เป็น Folder โดยตรง จะไม่เห็นรายการไฟล์
 Options -Indexes
 
-
 # -------------------------------------------------------------
-# 3. การจัดการ Error Pages (ไม่บังคับ แต่แนะนำ)
+# 3. การจัดการ Error Pages (แนะนำให้สร้างไฟล์ 404.php, 500.php ใน Root Directory)
 # ErrorDocument 404 /404.php
 # ErrorDocument 500 /500.php
 
 
 # -------------------------------------------------------------
 # 4. เพิ่ม Security Headers (แนะนำอย่างยิ่ง เพื่อป้องกันการโจมตีบางประเภท)
-# Strict-Transport-Security (HSTS): บังคับใช้ HTTPS ในอนาคต (ต้องรันบน HTTPS ก่อน)
-Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" env=HTTPS
-# X-Frame-Options: ป้องกัน Clickjacking
-Header always set X-Frame-Options "SAMEORIGIN"
-# X-XSS-Protection: ป้องกัน Cross-Site Scripting (XSS)
-Header always set X-XSS-Protection "1; mode=block"
-# X-Content-Type-Options: ป้องกัน MIME-sniffing
-Header always set X-Content-Type-Options "nosniff"
-# Referrer-Policy: ควบคุมข้อมูล Referrer ที่ส่งไป
-Header always set Referrer-Policy "no-referrer-when-downgrade"
-# Permissions-Policy (Feature-Policy เดิม): ควบคุมการเข้าถึง API ของ Browser (ใส่ตามที่จำเป็น)
-Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), usb=(), payment=()"
+# Headers เหล่านี้ต้องการ Apache mod_headers (ต้องเปิดใช้งานใน Dockerfile)
+<IfModule mod_headers.c>
+    # Strict-Transport-Security (HSTS): บังคับใช้ HTTPS ในอนาคต (ต้องรันบน HTTPS ก่อน)
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" env=HTTPS
+    # X-Frame-Options: ป้องกัน Clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+    # X-XSS-Protection: ป้องกัน Cross-Site Scripting (XSS)
+    Header always set X-XSS-Protection "1; mode=block"
+    # X-Content-Type-Options: ป้องกัน MIME-sniffing
+    Header always set X-Content-Type-Options "nosniff"
+    # Referrer-Policy: ควบคุมข้อมูล Referrer ที่ส่งไป
+    Header always set Referrer-Policy "no-referrer-when-downgrade"
+    # Permissions-Policy (Feature-Policy เดิม): ควบคุมการเข้าถึง API ของ Browser (ใส่ตามที่จำเป็น)
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), usb=(), payment=()"
+</IfModule>
 
 
 # -------------------------------------------------------------
 # 5. การทำ Caching ของ Browser (เพื่อประสิทธิภาพ)
-# บอก Browser ให้เก็บไฟล์บางประเภทไว้ใน Cache นานเท่าไหร่
+# Headers เหล่านี้ต้องการ Apache mod_expires (ต้องเปิดใช้งานใน Dockerfile)
 <IfModule mod_expires.c>
     ExpiresActive On
     # ตั้งค่า Default Expire (ถ้าไม่ระบุเฉพาะเจาะจง)
@@ -55,16 +58,21 @@ Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), 
     ExpiresByType image/png "access 1 year"
     ExpiresByType image/webp "access 1 year"
     ExpiresByType image/svg+xml "access 1 year"
+    ExpiresByType image/x-icon "access 1 year"
     # CSS และ JavaScript
     ExpiresByType text/css "access 1 month"
     ExpiresByType application/javascript "access 1 month"
+    # ไฟล์อื่นๆ
+    ExpiresByType application/pdf "access 1 month"
+    ExpiresByType application/x-shockwave-flash "access 1 month"
 </IfModule>
 
 
 # -------------------------------------------------------------
 # 6. กฎการทำ URL Rewriting (การทำให้ URL สวยงาม)
 # ต้องอยู่หลังจากกฎข้างบน
-RewriteEngine On
+RewriteEngine On # ต้องมีอีกครั้งเพื่อความแน่ใจว่าเปิดใช้งานในส่วนนี้
+
 
 # 6.1. ไม่ทำ Rewrite สำหรับไฟล์และ Directory ที่มีอยู่จริง
 # เช่น /style.css, /assets/img/logo.png, /admin/
@@ -72,35 +80,21 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 
 # 6.2. กฎเฉพาะสำหรับหน้า Detail (ตามโครงสร้างโปรเจกต์ของคุณ)
-# ตัวอย่าง: /news/123 จะถูก Rewrite ภายในไปที่ news_detail.php?id=123
+# เปลี่ยน URL ให้สวยงาม (เช่น /news/123 -> news_detail.php?id=123)
+# และคุณจะต้องแก้ไขลิงก์ในโค้ด PHP ของคุณด้วย เช่น <a>news_detail.php?id=...</a> เป็น <a>/news/...</a>
 RewriteRule ^news/([0-9]+)$ news_detail.php?id=$1 [L,QSA]
-# ตัวอย่าง: /player/45 จะถูก Rewrite ภายในไปที่ player_detail.php?id=45
 RewriteRule ^player/([0-9]+)$ player_detail.php?id=$1 [L,QSA]
-# ตัวอย่าง: /match/67 จะถูก Rewrite ภายในไปที่ match_detail.php?id=67
 RewriteRule ^match/([0-9]+)$ match_detail.php?id=$1 [L,QSA]
-# ตัวอย่าง: /meta/89 จะถูก Rewrite ภายในไปที่ meta_detail.php?id=$1
 RewriteRule ^meta/([0-9]+)$ meta_detail.php?id=$1 [L,QSA]
 
 # 6.3. หากคุณต้องการให้ URL ที่เป็นไฟล์ .php (เช่น /admin/login.php) สามารถเข้าถึงได้โดยไม่ต้องมี .php (เช่น /admin/login)
-# แนะนำให้ใช้ .php ตรงๆ จะชัดเจนกว่าสำหรับหน้า Admin เพื่อความปลอดภัย
-# แต่ถ้าต้องการใช้ก็เพิ่มได้:
-# RewriteRule ^admin/(.*)$ admin/$1.php [L]
-# RewriteRule ^includes/(.*)$ includes/$1.php [L]
-
-
-# 6.4. กฎสุดท้าย: หาก Request ใดๆ ไม่ใช่ไฟล์หรือ Directory ที่มีอยู่จริง และไม่ตรงกับกฎ Rewrite ข้างบน
-# ให้ Redirect ไปที่ index.php (สำหรับกรณีที่คุณมี Front Controller Pattern)
-# หากโปรเจกต์ของคุณไม่ได้ใช้ Front Controller Pattern (ทุก Request ไปที่ index.php) 
-# อาจจะไม่ต้องใช้บรรทัดนี้ หรือต้องใช้ Router ใน index.php เพื่อจัดการ Path
-# RewriteRule ^(.*)$ index.php [QSA,L]
-# เนื่องจากโปรเจกต์ของคุณดูเหมือนจะเรียกไฟล์ PHP โดยตรง (เช่น news.php, gallery.php)
-# การใส่ RewriteRule ข้างบนอาจทำให้หน้าเหล่านั้นไม่ทำงาน
-# ดังนั้น สำหรับโปรเจกต์ของคุณในปัจจุบัน อาจจะยังไม่จำเป็นต้องมี RewriteRule ตัวสุดท้ายนี้ครับ
-
+# หากคุณใช้ชื่อไฟล์ตรงๆ ใน HTML เช่น <a href="login.php">
+# กฎนี้จะทำให้เข้าถึงได้ทั้ง /login.php และ /login
+# RewriteRule ^([^\.]+)$ $1.php [NC,L] # สำหรับไฟล์ใน Root
+# RewriteRule ^admin/([^\.]+)$ admin/$1.php [NC,L] # สำหรับไฟล์ใน admin/
 
 # -------------------------------------------------------------
-# 7. PHP Settings (ถ้าจำเป็น)
-# หากต้องการตั้งค่า PHP ผ่าน .htaccess (บาง Host อาจไม่อนุญาต)
-# php_value display_errors Off
+# 7. PHP Settings (ถ้าจำเป็นและ Apache อนุญาต)
+# php_value display_errors Off # ปิดการแสดง error บนหน้าเว็บใน Production
 # php_value upload_max_filesize 10M
 # php_value post_max_size 10M
