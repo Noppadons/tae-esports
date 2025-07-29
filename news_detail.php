@@ -1,48 +1,83 @@
 <?php
 require_once 'includes/header.php';
 
-if (!isset($_GET['id']) || empty($_GET['id'])) {
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว (มาจาก includes/header.php -> db_connect.php)
+if (!isset($conn) || !$conn instanceof PDO) {
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง</p>";
+    exit;
+}
+
+if (!isset($_GET['id']) || empty(trim($_GET['id']))) {
     header("Location: news.php");
     exit;
 }
-$news_id = $_GET['id'];
+$news_id = trim($_GET['id']);
 
-// --- โค้ดสำหรับรับคอมเมนต์ใหม่ (POST Logic) ---
+// --- โค้ดสำหรับรับคอมเมนต์ใหม่ (POST Logic) (PDO) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_comment'])) {
     if (isset($_SESSION['user_id'])) {
-        $comment_content = trim($_POST['content']);
+        $comment_content = trim($_POST['content'] ?? '');
         $user_id = $_SESSION['user_id'];
+        
         if (!empty($comment_content)) {
-            $sql_insert = "INSERT INTO comments (news_id, user_id, content) VALUES (?, ?, ?)";
-            if ($stmt_insert = $conn->prepare($sql_insert)) {
-                $stmt_insert->bind_param("iis", $news_id, $user_id, $comment_content);
+            $sql_insert = "INSERT INTO comments (news_id, user_id, content) VALUES (:news_id, :user_id, :content)";
+            try {
+                $stmt_insert = $conn->prepare($sql_insert);
+                $stmt_insert->bindParam(':news_id', $news_id, PDO::PARAM_INT);
+                $stmt_insert->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+                $stmt_insert->bindParam(':content', $comment_content, PDO::PARAM_STR);
                 $stmt_insert->execute();
-                header("Location: news_detail.php?id=" . $news_id . "#comments-section");
+                
+                header("Location: news_detail.php?id=" . htmlspecialchars($news_id) . "#comments-section");
                 exit();
+            } catch (PDOException $e) {
+                error_log("Database error inserting comment: " . $e->getMessage());
+                // คุณอาจจะแสดงข้อความ error ให้ผู้ใช้เห็น
+                // echo "<p style='color:red;'>มีข้อผิดพลาดในการส่งความคิดเห็น: " . $e->getMessage() . "</p>";
             }
         }
+    } else {
+        // หากผู้ใช้ไม่ได้ login แต่พยายามส่งคอมเมนต์ (ผ่านการปรับ URL)
+        header("Location: login.php?redirect=" . urlencode("news_detail.php?id=" . $news_id));
+        exit();
     }
 }
 
-// --- ดึงข้อมูลข่าว ---
-$sql = "SELECT title, content, image_url, created_at FROM news WHERE id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $news_id);
-$stmt->execute();
-$result = $stmt->get_result();
-if ($result->num_rows == 0) { header("Location: news.php"); exit; }
-$news = $result->fetch_assoc();
+// --- ดึงข้อมูลข่าว (PDO) ---
+$news = null; // กำหนดค่าเริ่มต้น
+$sql_select_news = "SELECT title, content, image_url, created_at FROM news WHERE id = :id";
+try {
+    $stmt_news = $conn->prepare($sql_select_news);
+    $stmt_news->bindParam(':id', $news_id, PDO::PARAM_INT);
+    $stmt_news->execute();
+    $news = $stmt_news->fetch(PDO::FETCH_ASSOC);
 
-// --- ดึงคอมเมนต์มาแสดง ---
+    if (!$news) {
+        header("Location: news.php"); // ถ้าไม่พบข่าว
+        exit;
+    }
+} catch (PDOException $e) {
+    error_log("Database error fetching news details for public page: " . $e->getMessage());
+    die("<p style='text-align:center; color:red;'>ไม่สามารถโหลดข่าวได้ในขณะนี้</p>");
+}
+
+// --- ดึงคอมเมนต์มาแสดง (PDO) ---
+$comments = []; // กำหนดค่าเริ่มต้นเป็น array ว่าง
 $comments_sql = "
     SELECT c.content, c.created_at, u.username, u.avatar_url 
     FROM comments c JOIN users u ON c.user_id = u.id
-    WHERE c.news_id = ? AND c.status = 'approved'
+    WHERE c.news_id = :news_id AND c.status = 'approved'
     ORDER BY c.created_at DESC";
-$stmt_comments = $conn->prepare($comments_sql);
-$stmt_comments->bind_param("i", $news_id);
-$stmt_comments->execute();
-$comments_result = $stmt_comments->get_result();
+try {
+    $stmt_comments = $conn->prepare($comments_sql);
+    $stmt_comments->bindParam(':news_id', $news_id, PDO::PARAM_INT);
+    $stmt_comments->execute();
+    $comments = $stmt_comments->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมด
+} catch (PDOException $e) {
+    error_log("Database error fetching comments for news_detail: " . $e->getMessage());
+    // ไม่ถึงกับ fatal error แค่ไม่แสดงคอมเมนต์
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถโหลดความคิดเห็นได้ในขณะนี้</p>";
+}
 ?>
 <style>
     /* CSS เดิมของ news_detail_container */
@@ -75,24 +110,24 @@ $comments_result = $stmt_comments->get_result();
 
 <div class="container">
     <div class="news-detail-container">
-        <h1><?php echo htmlspecialchars($news['title']); ?></h1>
+        <h1><?php echo htmlspecialchars($news['title'] ?? 'ไม่พบหัวข้อ'); ?></h1>
         <div class="news-detail-meta">
-            เผยแพร่เมื่อ: <?php echo date('d F Y', strtotime($news['created_at'])); ?>
+            เผยแพร่เมื่อ: <?php echo htmlspecialchars(date('d F Y', strtotime($news['created_at'] ?? ''))); ?>
         </div>
         <?php if (!empty($news['image_url'])): ?>
-            <img src="<?php echo htmlspecialchars($news['image_url']); ?>" alt="<?php echo htmlspecialchars($news['title']); ?>" class="news-detail-image">
+            <img src="../<?php echo htmlspecialchars($news['image_url']); ?>" alt="<?php echo htmlspecialchars($news['title'] ?? ''); ?>" class="news-detail-image">
         <?php endif; ?>
         
         <div class="news-detail-content">
-            <?php echo $news['content']; ?>
+            <?php echo $news['content'] ?? ''; // เนื้อหาจาก TinyMCE ควรแสดงผลเป็น HTML ?>
         </div>
 
         <div id="comments-section" class="comments-section">
-            <h2>ความคิดเห็น (<?php echo $comments_result->num_rows; ?>)</h2>
+            <h2>ความคิดเห็น (<?php echo count($comments); ?>)</h2>
             
             <div class="comment-form">
                 <?php if (isset($_SESSION["user_id"])): ?>
-                    <form action="news_detail.php?id=<?php echo $news_id; ?>" method="post">
+                    <form action="news_detail.php?id=<?php echo htmlspecialchars($news_id); ?>" method="post">
                         <textarea name="content" placeholder="แสดงความคิดเห็นของคุณ..." required></textarea>
                         <button type="submit" name="submit_comment">ส่งความคิดเห็น</button>
                     </form>
@@ -104,25 +139,26 @@ $comments_result = $stmt_comments->get_result();
             </div>
             <hr style="border-color: #333; margin-top: 30px; margin-bottom: 30px;">
 
-            <?php if ($comments_result->num_rows > 0): ?>
-                <?php while($comment = $comments_result->fetch_assoc()): ?>
+            <?php if (!empty($comments)): ?>
+                <?php foreach($comments as $comment): ?>
                 <div class="comment">
                     <div class="comment-avatar">
-                        <img src="<?php echo !empty($comment['avatar_url']) ? htmlspecialchars($comment['avatar_url']) : 'assets/img/default_avatar.png'; ?>" alt="avatar">
+                        <img src="<?php echo !empty($comment['avatar_url']) ? htmlspecialchars($comment['avatar_url']) : 'assets/img/default_avatar.png'; ?>" alt="<?php echo htmlspecialchars($comment['username'] ?? 'User'); ?> Avatar">
                     </div>
                     <div class="comment-body">
-                        <div class="comment-author"><?php echo htmlspecialchars($comment['username']); ?></div>
-                        <div class="comment-date"><?php echo date('d F Y, H:i', strtotime($comment['created_at'])); ?></div>
+                        <div class="comment-author"><?php echo htmlspecialchars($comment['username'] ?? 'Unknown User'); ?></div>
+                        <div class="comment-date"><?php echo htmlspecialchars(date('d F Y, H:i', strtotime($comment['created_at'] ?? ''))); ?></div>
                         <div class="comment-content">
-                            <p><?php echo nl2br(htmlspecialchars($comment['content'])); ?></p>
+                            <p><?php echo nl2br(htmlspecialchars($comment['content'] ?? '')); ?></p>
                         </div>
                     </div>
                 </div>
-                <?php endwhile; ?>
+                <?php endforeach; ?>
             <?php else: ?>
                 <p style="text-align:center;">ยังไม่มีความคิดเห็น</p>
             <?php endif; ?>
         </div>
-        </div> </div>
+    </div>
+</div>
 
 <?php require_once 'includes/footer.php'; ?>

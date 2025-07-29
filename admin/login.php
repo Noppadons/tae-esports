@@ -3,6 +3,11 @@
 session_start();
 require_once '../includes/db_connect.php';
 
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว
+if (!isset($conn) || !$conn instanceof PDO) {
+    die("Database connection failed. Please check ../includes/db_connect.php");
+}
+
 // ถ้า login แล้ว ให้ redirect ไป dashboard เลย
 if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true) {
     header("Location: dashboard.php");
@@ -12,50 +17,52 @@ if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true
 $error_message = '';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (empty(trim($_POST["username"])) || empty(trim($_POST["password"]))) {
+    $username = trim($_POST["username"] ?? ''); // ใช้ ?? '' เพื่อจัดการกรณีที่ค่าไม่ถูกส่งมา
+    $password = trim($_POST["password"] ?? '');
+
+    if (empty($username) || empty($password)) {
         $error_message = "กรุณากรอก Username และ Password";
     } else {
-        $username = trim($_POST["username"]);
-        $password = trim($_POST["password"]);
-
-        $sql = "SELECT id, username, password FROM admins WHERE username = ?";
+        $sql = "SELECT id, username, password FROM admins WHERE username = :username"; // ใช้ named placeholder
         
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("s", $username);
+        try {
+            $stmt = $conn->prepare($sql);
+            // ผูกค่า Parameter
+            $stmt->bindParam(':username', $username, PDO::PARAM_STR);
+            $stmt->execute();
             
-            if ($stmt->execute()) {
-                $stmt->store_result();
-                
-                if ($stmt->num_rows == 1) {
-                    $stmt->bind_result($id, $username, $hashed_password);
-                    if ($stmt->fetch()) {
-                        if (password_verify($password, $hashed_password)) {
-                            // Password is correct, so start a new session
-                            session_start();
-                            
-                            // Store data in session variables
-                            $_SESSION["admin_logged_in"] = true;
-                            $_SESSION["admin_id"] = $id;
-                            $_SESSION["admin_username"] = $username;                            
-                            
-                            // Redirect user to dashboard page
-                            header("location: dashboard.php");
-                        } else {
-                            // Display an error message if password is not valid
-                            $error_message = "Password ที่คุณกรอกไม่ถูกต้อง";
-                        }
-                    }
+            $admin = $stmt->fetch(PDO::FETCH_ASSOC); // ดึงข้อมูลผู้ดูแลระบบออกมา 1 แถว
+
+            if ($admin) { // ถ้าพบ Username
+                $hashed_password = $admin['password'];
+                if (password_verify($password, $hashed_password)) {
+                    // Password ถูกต้อง, เริ่ม session (ถ้ายังไม่ได้เริ่ม)
+                    // session_start(); // ถ้ามี session_start() ข้างบนแล้ว ก็ไม่ต้องเรียกซ้ำ
+                    
+                    // เก็บข้อมูลลง session variables
+                    $_SESSION["admin_logged_in"] = true;
+                    $_SESSION["admin_id"] = $admin['id'];
+                    $_SESSION["admin_username"] = $admin['username']; 
+                    
+                    // Redirect user to dashboard page
+                    header("location: dashboard.php");
+                    exit();
                 } else {
-                    // Display an error message if username doesn't exist
-                    $error_message = "ไม่พบ Username นี้ในระบบ";
+                    // Password ไม่ถูกต้อง
+                    $error_message = "Password ที่คุณกรอกไม่ถูกต้อง";
                 }
             } else {
-                $error_message = "มีบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง";
+                // ไม่พบ Username
+                $error_message = "ไม่พบ Username นี้ในระบบ";
             }
-            $stmt->close();
+            
+        } catch (PDOException $e) {
+            // จัดการข้อผิดพลาดจาก Database
+            error_log("Database error during login: " . $e->getMessage());
+            $error_message = "มีบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง";
         }
+        // PDO ไม่จำเป็นต้องมี $stmt->close() หรือ $conn->close()
     }
-    $conn->close();
 }
 ?>
 
@@ -91,7 +98,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </div>
             <button type="submit">Login</button>
             <?php if(!empty($error_message)): ?>
-                <p class="error"><?php echo $error_message; ?></p>
+                <p class="error"><?php echo htmlspecialchars($error_message); ?></p>
             <?php endif; ?>
         </form>
     </div>

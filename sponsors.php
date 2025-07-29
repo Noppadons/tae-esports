@@ -1,4 +1,24 @@
 <?php require_once 'includes/header.php'; ?>
+
+<?php
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว (มาจาก includes/header.php -> db_connect.php)
+if (!isset($conn) || !$conn instanceof PDO) {
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง</p>";
+    exit;
+}
+
+$sponsors = []; // กำหนดค่าเริ่มต้นเป็น array ว่าง
+$sql_select_sponsors = "SELECT * FROM sponsors ORDER BY display_order ASC, name ASC";
+
+try {
+    $stmt_sponsors = $conn->query($sql_select_sponsors); // ใช้ query() สำหรับ SELECT ทั้งหมดที่ไม่มี Parameters
+    $sponsors = $stmt_sponsors->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดเป็น array ของ associative array
+
+} catch (PDOException $e) {
+    error_log("Database error fetching sponsors for public page: " . $e->getMessage());
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถโหลดข้อมูลผู้สนับสนุนได้ในขณะนี้</p>";
+}
+?>
 <style>
     .sponsor-grid {
         display: grid;
@@ -16,6 +36,7 @@
         justify-content: center;
         align-items: center;
         height: 120px;
+        text-decoration: none; /* เพื่อให้ลิงก์ไม่ขีดเส้นใต้ */
     }
     .sponsor-item:hover {
         transform: translateY(-10px);
@@ -31,6 +52,9 @@
     .sponsor-item:hover img {
         filter: grayscale(0%); /* เมื่อ hover ให้กลับเป็นสีปกติ */
     }
+    /* Assuming .container and .section-title are from includes/header.php or global CSS */
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .section-title { text-align: center; color: #fff; font-size: 2.5rem; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid #333; }
 </style>
 
 <div class="container">
@@ -40,21 +64,15 @@
     </p>
 
     <div class="sponsor-grid">
-        <?php
-        $sql = "SELECT * FROM sponsors ORDER BY display_order ASC, name ASC";
-        $result = $conn->query($sql);
-        if ($result->num_rows > 0) {
-            while($row = $result->fetch_assoc()) {
-        ?>
-        <a href="<?php echo htmlspecialchars($row['website_url']); ?>" target="_blank" class="sponsor-item">
-            <img src="<?php echo htmlspecialchars($row['logo_url']); ?>" alt="<?php echo htmlspecialchars($row['name']); ?>">
-        </a>
-        <?php
-            }
-        } else {
-            echo "<p style='text-align:center; grid-column: 1 / -1;'>ยังไม่มีผู้สนับสนุนอย่างเป็นทางการ</p>";
-        }
-        ?>
+        <?php if (!empty($sponsors)): ?>
+            <?php foreach($sponsors as $row): ?>
+            <a href="<?php echo htmlspecialchars($row['website_url'] ?? ''); ?>" target="_blank" class="sponsor-item">
+                <img src="../<?php echo !empty($row['logo_url']) ? htmlspecialchars($row['logo_url']) : 'assets/img/default_logo.png'; ?>" alt="<?php echo htmlspecialchars($row['name'] ?? ''); ?>">
+            </a>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p style='text-align:center; grid-column: 1 / -1;'>ยังไม่มีผู้สนับสนุนอย่างเป็นทางการ</p>
+        <?php endif; ?>
     </div>
 </div>
 

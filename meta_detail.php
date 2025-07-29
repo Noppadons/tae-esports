@@ -5,30 +5,41 @@ $page_title = 'รายละเอียด Meta Guide'; // ตั้งชื
 
 // ตรวจสอบให้แน่ใจว่าไฟล์ที่จำเป็นถูกเรียกใช้
 require_once 'includes/header.php'; // สำหรับส่วนหัวของหน้าเว็บทั่วไป (ไม่ใช่ admin header)
-require_once 'includes/api_helpers.php'; // สำหรับฟังก์ชันที่ช่วยเรียก API เช่น getDota2Items
+require_once 'includes/api_helpers.php'; // สำหรับฟังก์ชันที่ช่วยเรียก API เช่น getDota2Items, getDota2Heroes, getDota2HeroAbilitiesAndTalents
+
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว (มาจาก includes/header.php -> db_connect.php)
+if (!isset($conn) || !$conn instanceof PDO) {
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง</p>";
+    exit;
+}
 
 // ตรวจสอบ guide_id จาก URL
 $guide_id = $_GET['id'] ?? 0;
 if ($guide_id == 0) {
-    // ถ้าไม่มี ID ให้กลับไปหน้าแสดงรายการ Meta Guides
-    header("location: meta.php");
+    header("location: meta.php"); // ถ้าไม่มี ID ให้ redirect กลับไปหน้าแสดงรายการ Meta Guides
     exit();
 }
 
-// --- Fetch current guide data from database ---
-$sql = "SELECT * FROM meta_guides WHERE id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $guide_id);
-$stmt->execute();
-$guide = $stmt->get_result()->fetch_assoc();
+// --- Fetch current guide data from database (PDO) ---
+$guide = null; // กำหนดค่าเริ่มต้น
+$sql_select_guide = "SELECT * FROM meta_guides WHERE id = :id";
+try {
+    $stmt_select_guide = $conn->prepare($sql_select_guide);
+    $stmt_select_guide->bindParam(':id', $guide_id, PDO::PARAM_INT);
+    $stmt_select_guide->execute();
+    $guide = $stmt_select_guide->fetch(PDO::FETCH_ASSOC);
 
-// ถ้าไม่พบไกด์ ให้กลับไปหน้าแสดงรายการ Meta Guides
-if (!$guide) {
-    header("location: meta.php");
-    exit();
+    // ถ้าไม่พบไกด์ ให้กลับไปหน้าแสดงรายการ Meta Guides
+    if (!$guide) {
+        header("location: meta.php");
+        exit();
+    }
+} catch (PDOException $e) {
+    error_log("Database error fetching meta guide details on public page: " . $e->getMessage());
+    die("<p style='text-align:center; color:red;'>ไม่สามารถโหลดรายละเอียดไกด์ได้</p>");
 }
 
-// --- 1. ดึงข้อมูลไอเทมทั้งหมดมาสร้างแผนที่รูปภาพ ---
+// --- 1. ดึงข้อมูลไอเทมทั้งหมดมาสร้างแผนที่รูปภาพ (จาก API) ---
 $all_items = getDota2Items(); // สมมติว่าฟังก์ชันนี้อยู่ใน includes/api_helpers.php
 $item_image_map = [];
 if (is_array($all_items)) {
@@ -42,7 +53,7 @@ if (is_array($all_items)) {
     }
 }
 
-// --- Function to convert comma-separated string to filtered array ---
+// --- Function to convert comma-separated string to filtered array (ไม่เกี่ยวข้องกับ DB) ---
 // ฟังก์ชันนี้จะกรองค่าว่างเปล่าออกไป
 function text_to_array_filtered($text) {
     if(empty($text)) return [];
@@ -56,8 +67,9 @@ $dota_heroes = getDota2Heroes(); // สมมติว่าฟังก์ช�
 $selected_hero_id = null;
 $selected_hero_internal_name = null;
 
+// เพิ่ม ?? '' ให้ guide['hero_name'] เพื่อป้องกัน warning ถ้า key ไม่มีอยู่
 foreach($dota_heroes as $h) {
-    if(isset($h['localized_name']) && $h['localized_name'] == $guide['hero_name']) {
+    if(isset($h['localized_name']) && $h['localized_name'] == ($guide['hero_name'] ?? '')) {
         $selected_hero_id = $h['id'] ?? null;
         $selected_hero_internal_name = $h['name'] ?? null;
         break;
@@ -213,16 +225,18 @@ if ($selected_hero_id && $selected_hero_internal_name) {
 
 <div class="container guide-container">
     <header class="guide-header">
-        <img src="<?php echo htmlspecialchars($guide['hero_image_url']); ?>" alt="<?php echo htmlspecialchars($guide['hero_name']); ?>">
+        <img src="<?php echo htmlspecialchars($guide['hero_image_url'] ?? 'assets/img/default_hero.png'); ?>" alt="<?php echo htmlspecialchars($guide['hero_name'] ?? 'Unknown Hero'); ?>">
         <div>
-            <h1><?php echo htmlspecialchars($guide['title']); ?></h1>
+            <h1><?php echo htmlspecialchars($guide['title'] ?? 'ไม่พบหัวข้อ'); ?></h1>
             <div class="difficulty-stars">
-                <?php for($i = 0; $i < 5; $i++): ?>
-                    <span><?php echo ($i < $guide['difficulty']) ? '★' : '☆'; ?></span>
+                <?php 
+                $difficulty = $guide['difficulty'] ?? 0;
+                for($i = 0; $i < 5; $i++): ?>
+                    <span><?php echo ($i < $difficulty) ? '★' : '☆'; ?></span>
                 <?php endfor; ?>
             </div>
-            <p>ฮีโร่: <strong><?php echo htmlspecialchars($guide['hero_name']); ?></strong></p>
-            <p>เกม: <strong><?php echo htmlspecialchars($guide['game_name']); ?></strong></p>
+            <p>ฮีโร่: <strong><?php echo htmlspecialchars($guide['hero_name'] ?? 'ไม่ระบุ'); ?></strong></p>
+            <p>เกม: <strong><?php echo htmlspecialchars($guide['game_name'] ?? 'ไม่ระบุ'); ?></strong></p>
         </div>
     </header>
 
@@ -232,13 +246,13 @@ if ($selected_hero_id && $selected_hero_internal_name) {
             <div>
                 <h4>Starting Items</h4>
                 <div class="item-icon-grid">
-                    <?php foreach(text_to_array_filtered($guide['item_build_starting']) as $item_name):
+                    <?php foreach(text_to_array_filtered($guide['item_build_starting'] ?? '') as $item_name):
                         $lookup_key = strtolower($item_name);
                         // Fallback image URL. ตรวจสอบว่า `assets/img/default_item.png` มีอยู่จริง
                         $image_url = $item_image_map[$lookup_key] ?? 'assets/img/default_item.png';
                     ?>
                         <div class="item-icon" title="<?php echo htmlspecialchars($item_name); ?>">
-                            <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
+                            <img src="../<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -246,12 +260,12 @@ if ($selected_hero_id && $selected_hero_internal_name) {
             <div>
                 <h4>Early Game</h4>
                 <div class="item-icon-grid">
-                    <?php foreach(text_to_array_filtered($guide['item_build_early']) as $item_name):
+                    <?php foreach(text_to_array_filtered($guide['item_build_early'] ?? '') as $item_name):
                         $lookup_key = strtolower($item_name);
                         $image_url = $item_image_map[$lookup_key] ?? 'assets/img/default_item.png';
                     ?>
                         <div class="item-icon" title="<?php echo htmlspecialchars($item_name); ?>">
-                            <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
+                            <img src="../<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -259,12 +273,12 @@ if ($selected_hero_id && $selected_hero_internal_name) {
             <div>
                 <h4>Mid Game</h4>
                 <div class="item-icon-grid">
-                     <?php foreach(text_to_array_filtered($guide['item_build_mid']) as $item_name):
+                    <?php foreach(text_to_array_filtered($guide['item_build_mid'] ?? '') as $item_name):
                         $lookup_key = strtolower($item_name);
                         $image_url = $item_image_map[$lookup_key] ?? 'assets/img/default_item.png';
                     ?>
                         <div class="item-icon" title="<?php echo htmlspecialchars($item_name); ?>">
-                            <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
+                            <img src="../<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -272,12 +286,12 @@ if ($selected_hero_id && $selected_hero_internal_name) {
             <div>
                 <h4>Late Game</h4>
                 <div class="item-icon-grid">
-                     <?php foreach(text_to_array_filtered($guide['item_build_late']) as $item_name):
+                    <?php foreach(text_to_array_filtered($guide['item_build_late'] ?? '') as $item_name):
                         $lookup_key = strtolower($item_name);
                         $image_url = $item_image_map[$lookup_key] ?? 'assets/img/default_item.png';
                     ?>
                         <div class="item-icon" title="<?php echo htmlspecialchars($item_name); ?>">
-                            <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
+                            <img src="../<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($item_name); ?>">
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -288,7 +302,7 @@ if ($selected_hero_id && $selected_hero_internal_name) {
     <div class="guide-section">
         <h3>Skill Build</h3>
         <div class="skill-list">
-            <?php $skills = text_to_array_filtered($guide['skill_build']); ?>
+            <?php $skills = text_to_array_filtered($guide['skill_build'] ?? ''); ?>
             <?php if (!empty($skills)): ?>
                 <?php foreach($skills as $skill_name): ?>
                     <li><?php echo htmlspecialchars($skill_name); ?></li>
@@ -302,7 +316,7 @@ if ($selected_hero_id && $selected_hero_internal_name) {
     <div class="guide-section">
         <h3>Talent Build</h3>
         <div class="talent-list">
-            <?php $talents = text_to_array_filtered($guide['talent_build']); ?>
+            <?php $talents = text_to_array_filtered($guide['talent_build'] ?? ''); ?>
             <?php if (!empty($talents)): ?>
                 <?php foreach($talents as $talent_name): ?>
                     <li><?php echo htmlspecialchars($talent_name); ?></li>
@@ -316,13 +330,13 @@ if ($selected_hero_id && $selected_hero_internal_name) {
     <div class="guide-section">
         <h3>เนื้อหาไกด์</h3>
         <div class="guide-content">
-            <?php echo $guide['content']; // เนื้อหาจาก TinyMCE ควรแสดงผลเป็น HTML ?>
+            <?php echo $guide['content'] ?? ''; // เนื้อหาจาก TinyMCE ควรแสดงผลเป็น HTML ?>
         </div>
     </div>
 
     <div style="text-align: center; margin-top: 30px;">
         <a href="meta.php" class="btn btn-primary">&laquo; กลับไปหน้า Meta Guides</a>
-        </div>
+    </div>
 
 </div>
 

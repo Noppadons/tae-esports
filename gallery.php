@@ -1,5 +1,16 @@
 <?php require_once 'includes/header.php'; ?>
 
+<?php
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว (มาจาก includes/header.php -> db_connect.php)
+if (!isset($conn) || !$conn instanceof PDO) {
+    // จัดการข้อผิดพลาดถ้าการเชื่อมต่อ DB ล้มเหลว
+    // ในหน้า Public อาจจะไม่ die() แต่แสดงข้อความ error แทน
+    echo "<p style='text-align:center; color:red;'>ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง</p>";
+    // สามารถ exit; ได้ ถ้าไม่ต้องการให้แสดงเนื้อหาหน้าเว็บต่อ
+    // exit;
+}
+?>
+
 <style>
 .gallery-grid {
     display: grid;
@@ -40,18 +51,27 @@
     <h2 class="section-title">แกลเลอรี่</h2>
     <div class="gallery-grid">
     <?php
-    $sql = "SELECT image_url, caption FROM gallery ORDER BY uploaded_at DESC";
-    $result = $conn->query($sql);
-    if ($result->num_rows > 0) {
-        while($row = $result->fetch_assoc()) {
+    $gallery_images = []; // กำหนดค่าเริ่มต้นเป็น array ว่าง
+    $sql_select_gallery = "SELECT image_url, caption FROM gallery ORDER BY uploaded_at DESC";
+    
+    try {
+        $stmt_gallery = $conn->query($sql_select_gallery); // ใช้ query() สำหรับ SELECT ทั้งหมดที่ไม่มี Parameters
+        $gallery_images = $stmt_gallery->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดเป็น array ของ associative array
+
+        if (!empty($gallery_images)) { // ตรวจสอบว่ามีรูปภาพในแกลเลอรี่หรือไม่
+            foreach($gallery_images as $row) { // ใช้ foreach loop
     ?>
-        <div class="gallery-item" onclick="openLightbox('<?php echo htmlspecialchars($row['image_url']); ?>')">
-            <img src="<?php echo htmlspecialchars($row['image_url']); ?>" alt="<?php echo htmlspecialchars($row['caption']); ?>">
-        </div>
+                <div class="gallery-item" onclick="openLightbox('<?php echo htmlspecialchars($row['image_url'] ?? ''); ?>')">
+                    <img src="../<?php echo htmlspecialchars($row['image_url'] ?? ''); ?>" alt="<?php echo htmlspecialchars($row['caption'] ?? ''); ?>">
+                </div>
     <?php
+            }
+        } else {
+            echo "<p style='text-align:center; grid-column: 1 / -1;'>ยังไม่มีรูปภาพในแกลเลอรี่</p>";
         }
-    } else {
-        echo "<p style='text-align:center; grid-column: 1 / -1;'>ยังไม่มีรูปภาพในแกลเลอรี่</p>";
+    } catch (PDOException $e) {
+        error_log("Database error fetching gallery images on public page: " . $e->getMessage());
+        echo "<p style='text-align:center; grid-column: 1 / -1; color:red;'>ไม่สามารถโหลดรูปภาพได้ในขณะนี้</p>";
     }
     ?>
     </div>
@@ -59,7 +79,7 @@
 
 <div id="myLightbox" class="lightbox" onclick="closeLightbox()">
     <span class="close">&times;</span>
-    <img id="lightboxImage" src="">
+    <img id="lightboxImage" src="" alt="Lightbox Image">
 </div>
 
 <script>

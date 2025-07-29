@@ -1,19 +1,61 @@
 <?php
+// กำหนดหน้าปัจจุบันและชื่อหัวข้อ
 $active_page = 'dashboard';
 $page_title = 'Dashboard';
+
+// เรียกใช้ header ซึ่งควรจะมีโค้ดเชื่อมต่อฐานข้อมูล ($conn เป็น PDO object)
 require_once 'includes/admin_header.php';
 
-// ดึงข้อมูลสรุปทั้งหมดจากฐานข้อมูล
-$player_count_result = $conn->query("SELECT COUNT(*) as count FROM players");
-$player_count = $player_count_result->fetch_assoc()['count'];
-$team_count_result = $conn->query("SELECT COUNT(*) as count FROM teams");
-$team_count = $team_count_result->fetch_assoc()['count'];
-$upcoming_matches_result = $conn->query("SELECT COUNT(*) as count FROM matches WHERE status = 'Upcoming'");
-$upcoming_matches_count = $upcoming_matches_result->fetch_assoc()['count'];
-$news_count_result = $conn->query("SELECT COUNT(*) as count FROM news");
-$news_count = $news_count_result->fetch_assoc()['count'];
-$recent_news = $conn->query("SELECT id, title FROM news ORDER BY created_at DESC LIMIT 5");
-$recent_users = $conn->query("SELECT username FROM users ORDER BY created_at DESC LIMIT 5");
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว
+if (!isset($conn) || !$conn instanceof PDO) {
+    die("Database connection failed. Please check includes/db_connect.php");
+}
+
+// --- ฟังก์ชันช่วยสำหรับดึงค่า COUNT จากฐานข้อมูล (PDO) ---
+// การใช้ prepared statements สำหรับ query แบบ COUNT ที่ไม่มี user input โดยตรงอาจจะดูเกินความจำเป็น
+// แต่เป็นแนวทางที่ดีสำหรับความปลอดภัยและประสิทธิภาพ
+function getCount(PDO $pdo_conn, string $table, string $where_clause = ''): int {
+    $sql = "SELECT COUNT(*) as count FROM " . $table;
+    if (!empty($where_clause)) {
+        $sql .= " WHERE " . $where_clause;
+    }
+    try {
+        $stmt = $pdo_conn->query($sql);
+        // fetch(PDO::FETCH_ASSOC) ดึงข้อมูลแถวแรกเป็น associative array
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ? (int)$result['count'] : 0;
+    } catch (PDOException $e) {
+        error_log("Database error in getCount: " . $e->getMessage());
+        return 0; // คืนค่า 0 หรือจัดการ error ตามความเหมาะสม
+    }
+}
+
+// --- ดึงข้อมูลสรุปทั้งหมดจากฐานข้อมูล ---
+$player_count = getCount($conn, "players");
+$team_count = getCount($conn, "teams");
+$upcoming_matches_count = getCount($conn, "matches", "status = 'Upcoming'"); // มี WHERE clause
+$news_count = getCount($conn, "news");
+
+// --- ดึงข่าวล่าสุด ---
+$recent_news = []; // กำหนดค่าเริ่มต้นเป็น array เปล่า
+try {
+    $stmt_news = $conn->query("SELECT id, title FROM news ORDER BY created_at DESC LIMIT 5");
+    $recent_news = $stmt_news->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดเป็น array ของ associative array
+} catch (PDOException $e) {
+    error_log("Database error fetching recent news: " . $e->getMessage());
+    // คุณอาจจะแสดงข้อความ error บนหน้าเว็บ หรือแสดง array ว่างเปล่า
+}
+
+// --- ดึงแฟนคลับล่าสุด ---
+$recent_users = []; // กำหนดค่าเริ่มต้นเป็น array เปล่า
+try {
+    $stmt_users = $conn->query("SELECT username FROM users ORDER BY created_at DESC LIMIT 5");
+    $recent_users = $stmt_users->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดเป็น array ของ associative array
+} catch (PDOException $e) {
+    error_log("Database error fetching recent users: " . $e->getMessage());
+    // คุณอาจจะแสดงข้อความ error บนหน้าเว็บ หรือแสดง array ว่างเปล่า
+}
+
 ?>
 
 <style>
@@ -32,27 +74,33 @@ $recent_users = $conn->query("SELECT username FROM users ORDER BY created_at DES
 <h1>Admin Dashboard</h1>
 
 <div class="dashboard-stats">
-    <div class="stat-card"><h3><?php echo $player_count; ?></h3><p>👥 นักกีฬาทั้งหมด</p></div>
-    <div class="stat-card"><h3><?php echo $team_count; ?></h3><p>🚩 ทีมในสังกัด</p></div>
-    <div class="stat-card"><h3><?php echo $upcoming_matches_count; ?></h3><p>🗓️ แมตช์ที่กำลังจะแข่ง</p></div>
-    <div class="stat-card"><h3><?php echo $news_count; ?></h3><p>📰 ข่าวทั้งหมด</p></div>
+    <div class="stat-card"><h3><?php echo htmlspecialchars($player_count); ?></h3><p>👥 นักกีฬาทั้งหมด</p></div>
+    <div class="stat-card"><h3><?php echo htmlspecialchars($team_count); ?></h3><p>🚩 ทีมในสังกัด</p></div>
+    <div class="stat-card"><h3><?php echo htmlspecialchars($upcoming_matches_count); ?></h3><p>🗓️ แมตช์ที่กำลังจะแข่ง</p></div>
+    <div class="stat-card"><h3><?php echo htmlspecialchars($news_count); ?></h3><p>📰 ข่าวทั้งหมด</p></div>
 </div>
 
 <div class="activity-grid">
     <div class="dashboard-section">
         <h2>ข่าวล่าสุด</h2>
         <ul class="activity-list">
-            <?php while($news = $recent_news->fetch_assoc()): ?>
-                <li><a href="edit_news.php?id=<?php echo $news['id']; ?>"><?php echo htmlspecialchars($news['title']); ?></a></li>
-            <?php endwhile; ?>
+            <?php foreach($recent_news as $news): // ใช้ foreach สำหรับข้อมูลที่ fetchAll มาแล้ว ?>
+                <li><a href="edit_news.php?id=<?php echo htmlspecialchars($news['id']); ?>"><?php echo htmlspecialchars($news['title']); ?></a></li>
+            <?php endforeach; ?>
+            <?php if (empty($recent_news)): ?>
+                <li>ไม่มีข่าวล่าสุด</li>
+            <?php endif; ?>
         </ul>
     </div>
     <div class="dashboard-section">
         <h2>แฟนคลับล่าสุด</h2>
         <ul class="activity-list">
-             <?php while($user = $recent_users->fetch_assoc()): ?>
+            <?php foreach($recent_users as $user): // ใช้ foreach สำหรับข้อมูลที่ fetchAll มาแล้ว ?>
                 <li><?php echo htmlspecialchars($user['username']); ?></li>
-            <?php endwhile; ?>
+            <?php endforeach; ?>
+            <?php if (empty($recent_users)): ?>
+                <li>ไม่มีแฟนคลับล่าสุด</li>
+            <?php endif; ?>
         </ul>
     </div>
 </div>

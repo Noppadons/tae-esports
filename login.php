@@ -1,6 +1,11 @@
 <?php
-// ย้าย header.php มาไว้บนสุดเพื่อเริ่ม session ก่อน
+// ย้าย header.php มาไว้บนสุดเพื่อเริ่ม session ก่อน (และรวม db_connect.php)
 require_once 'includes/header.php';
+
+// ตรวจสอบว่า $conn เป็น PDO object ที่เชื่อมต่อแล้ว
+if (!isset($conn) || !$conn instanceof PDO) {
+    die("Database connection failed. Please check includes/db_connect.php");
+}
 
 $email_err = $password_err = $login_err = "";
 
@@ -11,35 +16,47 @@ if (isset($_SESSION["user_id"])) {
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (empty(trim($_POST["email"]))) { $email_err = "กรุณากรอก Email"; }
-    if (empty(trim($_POST["password"]))) { $password_err = "กรุณากรอกรหัสผ่าน"; }
+    $email = trim($_POST["email"] ?? '');
+    $password = trim($_POST["password"] ?? '');
+
+    if (empty($email)) { $email_err = "กรุณากรอก Email"; }
+    if (empty($password)) { $password_err = "กรุณากรอกรหัสผ่าน"; }
 
     if (empty($email_err) && empty($password_err)) {
-        $sql = "SELECT id, username, password FROM users WHERE email = ?";
-        if ($stmt = $conn->prepare($sql)) {
-            $stmt->bind_param("s", $_POST["email"]);
-            if ($stmt->execute()) {
-                $result = $stmt->get_result();
-                if ($result->num_rows == 1) {
-                    $user = $result->fetch_assoc();
-                    if (password_verify($_POST["password"], $user['password'])) {
-                        $_SESSION["user_id"] = $user['id'];
-                        $_SESSION["username"] = $user['username'];                            
-                        header("location: profile.php");
-                        exit();
-                    } else {
-                        $login_err = "Email หรือรหัสผ่านไม่ถูกต้อง";
-                    }
+        $sql = "SELECT id, username, password FROM users WHERE email = :email"; // ใช้ named placeholder
+        
+        try {
+            $stmt = $conn->prepare($sql);
+            // ผูกค่า Parameter
+            $stmt->bindParam(':email', $email, PDO::PARAM_STR);
+            $stmt->execute();
+            
+            $user = $stmt->fetch(PDO::FETCH_ASSOC); // ดึงข้อมูลผู้ใช้งานออกมา 1 แถว
+
+            if ($user) { // ถ้าพบ Email
+                $hashed_password = $user['password'];
+                if (password_verify($password, $hashed_password)) {
+                    // Password ถูกต้อง, เก็บข้อมูลลง session variables
+                    $_SESSION["user_id"] = $user['id'];
+                    $_SESSION["username"] = $user['username'];
+                    
+                    header("location: profile.php");
+                    exit();
                 } else {
-                    $login_err = "ไม่พบผู้ใช้งานด้วย Email นี้";
+                    // Password ไม่ถูกต้อง
+                    $login_err = "Email หรือรหัสผ่านไม่ถูกต้อง";
                 }
             } else {
-                $login_err = "มีบางอย่างผิดพลาด กรุณาลองใหม่";
+                // ไม่พบผู้ใช้งานด้วย Email นี้
+                $login_err = "ไม่พบผู้ใช้งานด้วย Email นี้";
             }
-             $stmt->close();
+            
+        } catch (PDOException $e) {
+            // จัดการข้อผิดพลาดจาก Database
+            error_log("Database error during user login: " . $e->getMessage());
+            $login_err = "มีบางอย่างผิดพลาด กรุณาลองใหม่";
         }
     }
-     $conn->close();
 }
 ?>
 <style>
@@ -60,17 +77,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <div class="container form-page-container">
     <div class="form-wrapper">
         <h2>เข้าสู่ระบบ</h2>
-        <?php if(!empty($login_err)){ echo '<div class="login-error-box">' . $login_err . '</div>'; } ?>
+        <?php if(!empty($login_err)){ echo '<div class="login-error-box">' . htmlspecialchars($login_err) . '</div>'; } ?>
         <form action="login.php" method="post" novalidate>
             <div class="form-group">
                 <label>Email</label>
-                <input type="email" name="email" value="<?php echo !empty($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
-                <span class="error-text"><?php echo $email_err; ?></span>
+                <input type="email" name="email" value="<?php echo htmlspecialchars($email ?? ''); ?>">
+                <span class="error-text"><?php echo htmlspecialchars($email_err); ?></span>
             </div>    
             <div class="form-group">
                 <label>Password</label>
                 <input type="password" name="password">
-                <span class="error-text"><?php echo $password_err; ?></span>
+                <span class="error-text"><?php echo htmlspecialchars($password_err); ?></span>
             </div>
             <div class="form-group">
                 <input type="submit" class="btn-submit" value="ล็อกอิน">
