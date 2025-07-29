@@ -12,7 +12,6 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 # STEP 4: ติดตั้ง System Dependencies ที่จำเป็นสำหรับ PHP Extensions และ Tools
-# 'apt-get update' เพื่ออัปเดตรายการแพ็กเกจ
 # 'libpq-dev' จำเป็นสำหรับ pdo_pgsql และ pgsql extensions (สำหรับ PostgreSQL)
 # 'zip' และ 'unzip' เป็นเครื่องมือที่พบบ่อยสำหรับ PHP applications/dependency managers (เช่น Composer)
 # 'rm -rf /var/lib/apt/lists/*' เพื่อล้าง Cache ของ apt และลดขนาด Docker Image
@@ -23,12 +22,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # STEP 5: ติดตั้ง PHP Extensions ที่โปรเจกต์ของคุณต้องการ
-# 'docker-php-ext-install' เป็นคำสั่งมาตรฐานสำหรับติดตั้ง PHP Extensions
 # 'pdo': PHP Data Objects Core (จำเป็นสำหรับ PDO ทุก Database)
 # 'pdo_pgsql': PDO Driver สำหรับ PostgreSQL (สำหรับเชื่อมต่อ DB ของคุณ)
 # 'pgsql': Native PostgreSQL Extension (บางที pdo_pgsql ก็พอ แต่ติดตั้งไปก็ไม่เสียหาย)
-# ส่วนใหญ่ Docker จะ Enable ให้เองหลังจาก Install แต่ถ้าเจอ 'could not find driver' อีกครั้ง 
-# อาจจะต้องเพิ่ม RUN docker-php-ext-enable pdo_pgsql pgsql
 RUN docker-php-ext-install pdo pdo_pgsql pgsql
 
 # STEP 6: กำหนดค่า Apache เพื่อให้รองรับ .htaccess และเปิดใช้งาน Modules ที่จำเป็น
@@ -52,9 +48,13 @@ RUN chown -R www-data:www-data assets/img \
     && find assets/img -type d -exec chmod 775 {} \; \
     && find assets/img -type f -exec chmod 664 {} \;
 
-# STEP 8: กำหนด Port ที่ Container จะเปิดเพื่อรับ Traffic ภายนอก
+# STEP 8: กำหนด Directory Index ให้ Apache (ไฟล์เริ่มต้นที่ Apache จะมองหา)
+# นี่จะช่วยแก้ปัญหา 'Not Found' บนหน้าหลัก (/) ถ้า index.php ไม่ถูกหาเจอ
+RUN echo 'DirectoryIndex index.php index.html' > /etc/apache2/conf-enabled/z-directoryindex.conf
+
+# STEP 9: กำหนด Port ที่ Container จะเปิดเพื่อรับ Traffic ภายนอก
 # Apache โดยปกติจะรับ HTTP Traffic ที่ Port 80
 EXPOSE 80
 
-# STEP 9: กำหนด Command ที่จะรันเมื่อ Container เริ่มต้น (ไม่บังคับ เพราะ Base Image มี Default)
+# STEP 10: กำหนด Command ที่จะรันเมื่อ Container เริ่มต้น (ไม่บังคับ เพราะ Base Image มี Default)
 # CMD ["apache2-foreground"]
