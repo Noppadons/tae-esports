@@ -51,7 +51,7 @@ Options -Indexes
 <IfModule mod_expires.c>
     ExpiresActive On
     # ตั้งค่า Default Expire (ถ้าไม่ระบุเฉพาะเจาะจง)
-    ExpiresDefault "access 2 days" 
+    ExpiresDefault "access 2 days"
     # ไฟล์รูปภาพ
     ExpiresByType image/jpg "access 1 year"
     ExpiresByType image/jpeg "access 1 year"
