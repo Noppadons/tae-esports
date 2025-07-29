@@ -7,7 +7,7 @@ $db_host = getenv('DB_HOST') ?: 'dpg-d243vqpr0fns73aoghtg-a.singapore-postgres.r
 $db_port = getenv('DB_PORT') ?: '5432';
 $db_name = getenv('DB_NAME') ?: 'taedb'; // ใช้ชื่อ DB ที่คุณสร้างบน Render
 $db_user = getenv('DB_USER') ?: 'taedb'; // ใช้ Username ของ PostgreSQL บน Local (ถ้ามี)
-$db_pass = getenv('DB_PASS') ?: 'JhHwuvZkNurNfKPPOe2h21E7iTRW8txyเ'; // ใช้ Password ของ PostgreSQL บน Local (ถ้ามี)
+$db_pass = getenv('DB_PASS') ?: 'JhHwuvZkNurNfKPPOe2h21E7iTRW8txy'; // ใช้ Password ของ PostgreSQL บน Local (ถ้ามี)
 
 try {
     // สร้าง DSN (Data Source Name) สำหรับ PDO PostgreSQL
